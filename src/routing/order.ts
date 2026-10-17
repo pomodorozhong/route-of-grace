@@ -1,8 +1,9 @@
-import type {
-  MapDocument,
-  MapNode,
-  Point,
-  WishlistItem,
+import {
+  pinItems,
+  type MapDocument,
+  type MapNode,
+  type Point,
+  type WishlistItem,
 } from "../domain/types";
 import {
   pathTo,
@@ -20,7 +21,7 @@ export function wishlistTargets(
   return wishlist.flatMap((w) => {
     const pin =
       w.status === "needed" &&
-      map.nodes.find((n) => n.kind === "item" && n.ref === w.item);
+      map.nodes.find((n) => pinItems(n).includes(w.item));
     return pin ? [{ item: w.item, node: pin.id }] : [];
   });
 }

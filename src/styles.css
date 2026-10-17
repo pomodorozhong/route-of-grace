@@ -81,10 +81,7 @@ body {
   cursor: default;
 }
 .tool-path .map-canvas,
-.tool-grace .map-canvas,
-.tool-junction .map-canvas,
-.tool-item .map-canvas,
-.tool-entrance .map-canvas {
+.tool-pin .map-canvas {
   cursor: crosshair;
 }
 
@@ -119,7 +116,9 @@ body {
   margin: -6px 0 0 -6px !important;
   background: var(--color-sage);
 }
-.map-node--item {
+/* A pin where items are: an older map's item pin, or any pin holding items. */
+.map-node--item,
+.map-node.has-items {
   width: 30px !important;
   height: 30px !important;
   margin: -15px 0 0 -15px !important;
@@ -132,6 +131,18 @@ body {
 .map-node--entrance {
   border-radius: 3px;
   background: #c9b28d;
+}
+/* How many more items a pin holds than the one it shows. */
+.item-count {
+  position: absolute;
+  bottom: -8px;
+  left: -10px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--color-ink);
+  color: var(--color-gold);
+  font: 700 10px/16px var(--font-sans);
+  box-shadow: 0 0 0 1px var(--color-gold);
 }
 /* Graces not discovered in this playthrough yet: unlit. */
 .map-node--grace.is-undiscovered {
@@ -198,6 +209,21 @@ body {
   width: max-content;
   padding: 1px 6px;
   border: 1px solid;
+  border-radius: 6px;
+  background: rgb(20 18 14 / 0.85);
+  color: var(--color-text);
+  font: 12px / 1.4 var(--font-sans);
+  white-space: pre-wrap;
+  cursor: pointer;
+}
+/* A pin's note, shown just below the pin when the player asks for it. */
+.pin-note span {
+  position: absolute;
+  transform: translate(-50%, 18px);
+  max-width: 14rem;
+  width: max-content;
+  padding: 1px 6px;
+  border: 1px solid var(--color-gold);
   border-radius: 6px;
   background: rgb(20 18 14 / 0.85);
   color: var(--color-text);

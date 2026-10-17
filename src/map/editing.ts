@@ -1,23 +1,26 @@
 import {
+  isWalked,
   type LayerId,
   type MapDocument,
   type MapEdge,
   type MapNode,
   type PathColor,
   type Point,
+  type WalkedPath,
 } from "../domain/types";
 
 export const newId = (prefix: string) =>
   `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 
 /**
- * A path to add: it always becomes the last step. Without a color, it takes
- * its step's color.
+ * A path to add: through two or more pins it becomes the last step, and
+ * without a color takes its step's color. Through one pin it is that pin's
+ * note path, with no step.
  */
 export type NewEdge = Omit<MapEdge, "step" | "color"> &
   Partial<Pick<MapEdge, "color">>;
 
-/** A new path through `nodes`, drawn the default way. */
+/** A new path through `nodes` (one pin for a note path), drawn the default way. */
 export const newPath = (id: string, nodes: string[]): NewEdge => ({
   id,
   nodes,
@@ -90,8 +93,17 @@ export function applyMapAction(
 ): MapDocument {
   const find = (id: string) =>
     doc.nodes.find((n) => n.id === id) ?? fixed.get(id);
-  const fits = (pins: string[]) =>
-    pins.length >= 2 && pins.every((id, i) => find(id) && id !== pins[i - 1]);
+  const fits = (pins: string[], walked = true) =>
+    pins.length >= (walked ? 2 : 1) &&
+    (walked || pins.length === 1) &&
+    pins.every((id, i) => find(id) && id !== pins[i - 1]);
+  const walked = inStepOrder(doc.edges);
+  const notes = doc.edges.filter((e) => !isWalked(e));
+  /** The document with these walked paths, numbered in order, and `keep` notes. */
+  const withPaths = (paths: WalkedPath[], keep = notes) => ({
+    ...doc,
+    edges: [...renumber(paths), ...keep],
+  });
   const replace = (edge: MapEdge) => ({
     ...doc,
     edges: doc.edges.map((e) => (e.id === edge.id ? edge : e)),
@@ -110,8 +122,9 @@ export function applyMapAction(
     }
     case "removeNode": {
       if (!doc.nodes.some((n) => n.id === action.id)) return doc;
-      // Paths through the node close up around it; a path left with one pin goes.
-      const edges = inStepOrder(doc.edges).flatMap((e) => {
+      // Paths through the node close up around it; a path left with one pin
+      // goes, and so does the node's note path.
+      const paths = walked.flatMap((e) => {
         if (!e.nodes.includes(action.id)) return [e];
         const nodes = e.nodes
           .filter((id) => id !== action.id)
@@ -119,22 +132,33 @@ export function applyMapAction(
         return nodes.length >= 2 ? [{ ...e, nodes }] : [];
       });
       return {
-        ...doc,
+        ...withPaths(
+          paths,
+          notes.filter((e) => e.nodes[0] !== action.id),
+        ),
         nodes: doc.nodes.filter((n) => n.id !== action.id),
-        edges: renumber(edges),
       };
     }
     case "addEdge": {
       const { edge } = action;
+      if (doc.edges.some((e) => e.id === edge.id)) return doc;
+      if (edge.nodes.length === 1) {
+        const pin = edge.nodes[0];
+        if (!fits(edge.nodes, false) || notePath(doc, pin)) return doc;
+        return {
+          ...doc,
+          edges: [...doc.edges, { color: "gold", ...edge, step: null }],
+        };
+      }
       if (!fits(edge.nodes)) return doc;
-      const step = doc.edges.length + 1;
+      const step = walked.length + 1;
       return {
         ...doc,
         edges: [...doc.edges, { color: stepColor(step), ...edge, step }],
       };
     }
     case "extendEdge": {
-      const edge = doc.edges.find((e) => e.id === action.id);
+      const edge = walked.find((e) => e.id === action.id);
       if (!edge) return doc;
       const nodes = [...edge.nodes, action.node];
       return fits(nodes) ? replace({ ...edge, nodes }) : doc;
@@ -143,26 +167,24 @@ export function applyMapAction(
       const edge = doc.edges.find((e) => e.id === action.id);
       if (!edge) return doc;
       const updated = { ...edge, ...action.changes };
-      return fits(updated.nodes) ? replace(updated) : doc;
+      return fits(updated.nodes, isWalked(edge)) ? replace(updated) : doc;
     }
     case "removeEdge":
       if (!doc.edges.some((e) => e.id === action.id)) return doc;
-      return {
-        ...doc,
-        edges: renumber(
-          inStepOrder(doc.edges).filter((e) => e.id !== action.id),
-        ),
-      };
+      return withPaths(
+        walked.filter((e) => e.id !== action.id),
+        notes.filter((e) => e.id !== action.id),
+      );
     case "moveEdge": {
-      const edge = doc.edges.find((e) => e.id === action.id);
-      const step = Math.min(Math.max(1, action.step), doc.edges.length);
+      const edge = walked.find((e) => e.id === action.id);
+      const step = Math.min(Math.max(1, action.step), walked.length);
       if (!edge || !Number.isInteger(step) || step === edge.step) return doc;
-      const others = inStepOrder(doc.edges).filter((e) => e.id !== edge.id);
+      const others = walked.filter((e) => e.id !== edge.id);
       others.splice(step - 1, 0, edge);
-      return { ...doc, edges: renumber(others) };
+      return withPaths(others);
     }
     case "splitEdge": {
-      const edge = doc.edges.find((e) => e.id === action.id);
+      const edge = walked.find((e) => e.id === action.id);
       const { at } = action;
       if (
         !edge ||
@@ -170,14 +192,14 @@ export function applyMapAction(
         doc.edges.some((e) => e.id === action.newId)
       )
         return doc;
-      const ordered = inStepOrder(doc.edges);
+      const ordered = [...walked];
       ordered.splice(
         ordered.indexOf(edge),
         1,
         { ...edge, nodes: edge.nodes.slice(0, at + 1) },
         { ...edge, id: action.newId, nodes: edge.nodes.slice(at) },
       );
-      return { ...doc, edges: renumber(ordered) };
+      return withPaths(ordered);
     }
     case "batch":
       return action.actions.reduce(
@@ -187,12 +209,16 @@ export function applyMapAction(
   }
 }
 
-/** Paths in walking order. */
-export const inStepOrder = (edges: MapEdge[]) =>
-  [...edges].sort((a, b) => a.step - b.step);
+/** The walked paths in walking order, leaving out note paths. */
+export const inStepOrder = (edges: MapEdge[]): WalkedPath[] =>
+  edges.filter(isWalked).sort((a, b) => a.step - b.step);
+
+/** The note path of pin `id`: the path through only that pin, if any. */
+export const notePath = (doc: Pick<MapDocument, "edges">, id: string) =>
+  doc.edges.find((e) => !isWalked(e) && e.nodes[0] === id);
 
 /** Number paths 1..N in the order given. */
-const renumber = (edges: MapEdge[]) =>
+const renumber = (edges: WalkedPath[]) =>
   edges.map((e, i) => (e.step === i + 1 ? e : { ...e, step: i + 1 }));
 
 export type History = {

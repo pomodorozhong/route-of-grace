@@ -1,5 +1,7 @@
 import {
   WISHLIST_STATUSES,
+  isWalked,
+  pinItems,
   type MapDocument,
   type PlayerDocument,
   type WishlistItem,
@@ -68,15 +70,13 @@ export type WalkEntry = { entry: WishlistItem; pin: string; step: number };
  */
 export function walkOrder(map: MapDocument, wishlist: WishlistItem[]) {
   const steps = new Map<string, number>();
-  for (const edge of map.edges)
+  for (const edge of map.edges.filter(isWalked))
     for (const node of edge.nodes)
       steps.set(node, Math.min(steps.get(node) ?? Infinity, edge.step));
   const onRoute: WalkEntry[] = [];
   const offRoute: { entry: WishlistItem; pin: string | null }[] = [];
   for (const entry of wishlist) {
-    const pins = map.nodes.filter(
-      (n) => n.kind === "item" && n.ref === entry.item,
-    );
+    const pins = map.nodes.filter((n) => pinItems(n).includes(entry.item));
     const reached = pins
       .filter((n) => steps.has(n.id))
       .map((n) => ({ entry, pin: n.id, step: steps.get(n.id)! }))

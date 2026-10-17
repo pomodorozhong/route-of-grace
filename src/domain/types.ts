@@ -40,11 +40,23 @@ export type MapNode = {
   label: string;
   /** Catalog id (for example "place/76100" or "weapon/1000000"), or null. */
   ref: string | null;
+  /**
+   * Catalog ids of the items picked up here, in the order added. Missing means
+   * none. Older maps mark an item's place with the "item" kind and its `ref`
+   * instead; `pinItems` reads both.
+   */
+  items?: string[];
 };
+
+/** The items picked up at a pin, from its item list or an older map's item pin. */
+export const pinItems = (node: MapNode): string[] =>
+  node.items ?? (node.kind === "item" && node.ref !== null ? [node.ref] : []);
 
 /**
  * A path the player drew: one line through pins, in drawing order, with one
- * step number. A pin can be a game grace by its catalog id ("grace/<row>"),
+ * step number. A path through a single pin, with no step, is that pin's note
+ * path: it holds the pin's note, isn't drawn as a line or walked, and each pin
+ * has at most one. A pin can be a game grace by its catalog id ("grace/<row>"),
  * which the map shows without storing. A hop between pins on two layers is a
  * jump, such as a waygate: it isn't drawn, and the route planner costs it as
  * a short fixed distance.
@@ -63,10 +75,16 @@ export type MapEdge = {
   showNote: boolean;
   /**
    * The path's place in the player's walk, shown on the map. Steps run 1..N
-   * across the whole map, with no gaps or repeats.
+   * across the walked paths, with no gaps or repeats. Null on a note path.
    */
-  step: number;
+  step: number | null;
 };
+
+/** A path the player walks: two or more pins and a step. */
+export type WalkedPath = MapEdge & { step: number };
+
+export const isWalked = (edge: MapEdge): edge is WalkedPath =>
+  edge.step !== null;
 
 /** A profile's own nodes and paths. Game graces are not stored here. */
 export type MapDocument = {

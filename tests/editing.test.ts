@@ -148,7 +148,7 @@ describe("path steps", () => {
       start,
     );
   const order = (map: MapDocument) =>
-    [...map.edges].sort((x, y) => x.step - y.step).map((e) => e.id);
+    [...map.edges].sort((x, y) => x.step! - y.step!).map((e) => e.id);
   const steps = (map: MapDocument) =>
     Object.fromEntries(map.edges.map((e) => [e.id, e.step]));
   const four = add(doc(node("a"), node("b"), node("c")), "p", "q", "r", "s");

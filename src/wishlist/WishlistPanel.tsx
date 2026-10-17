@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   WISHLIST_STATUSES,
+  pinItems,
   type Language,
   type MapDocument,
   type PlayerDocument,
@@ -100,7 +101,7 @@ export function WishlistPanel({
       <ul className="space-y-3">
         {profile.wishlist.map((entry) => {
           const item = data.byId.get(entry.item);
-          const pin = doc.nodes.find((n) => n.ref === entry.item);
+          const pin = doc.nodes.find((n) => pinItems(n).includes(entry.item));
           return (
             <li
               key={entry.item}

@@ -288,3 +288,51 @@ describe("grace names", () => {
     expect(labels()).toHaveLength(4);
   });
 });
+
+describe("pin notes and items", () => {
+  const notePath = (pin: string, showNote: boolean) => ({
+    ...drawn(`note-${pin}`, [pin]),
+    note: "<i>Chest</i> here",
+    showNote,
+    step: null,
+  });
+
+  it("shows a pin's note below it only when asked, as plain text, with no step number", () => {
+    const { container, rerender } = render(
+      <MapCanvas {...canvasProps()} edges={[notePath("surface", false)]} />,
+    );
+    expect(container.querySelector(".pin-note")).toBeNull();
+    expect(container.querySelector(".path-step")).toBeNull();
+    rerender(
+      <MapCanvas {...canvasProps()} edges={[notePath("surface", true)]} />,
+    );
+    const note = container.querySelector(".pin-note")!;
+    expect(note).toHaveTextContent("<i>Chest</i> here");
+    expect(note.querySelector("i")).toBeNull();
+    expect(container.querySelector(".path-step")).toBeNull();
+  });
+
+  it("keeps a grace with a note visible when unused graces are hidden", () => {
+    const { container } = render(
+      <MapCanvas
+        {...canvasProps()}
+        hideUnusedGraces
+        edges={[notePath("grace/2", true)]}
+      />,
+    );
+    expect(container.querySelectorAll(".map-node--grace")).toHaveLength(1);
+    expect(container.querySelector(".pin-note")).toHaveTextContent("Chest");
+  });
+
+  it("marks a pin holding items with how many more it holds", () => {
+    const [surface] = nodes;
+    const { container } = render(
+      <MapCanvas
+        {...canvasProps()}
+        nodes={[{ ...surface, items: ["weapon/1", "weapon/2", "weapon/3"] }]}
+      />,
+    );
+    const pin = container.querySelector(".map-node.has-items")!;
+    expect(pin).toHaveTextContent("+2");
+  });
+});

@@ -21,13 +21,8 @@ function Icon({ path, size = 18 }: { path: string; size?: number }) {
 
 const TOOL_PATHS: Record<Tool, string> = {
   select: "M4 2 L4 14 L7.5 10.5 L10 16 L12 15 L9.5 9.5 L14 9.5 Z",
-  junction:
-    "M9 2 V6.5 M9 11.5 V16 M2 9 H6.5 M11.5 9 H16 M9 6.5 a2.5 2.5 0 1 0 0.01 0",
-  item: "M9 16 C 9 16 3.5 10.5 3.5 7 A5.5 5.5 0 0 1 14.5 7 C 14.5 10.5 9 16 9 16 Z M9 5 V9 M7 7 H11",
-  entrance:
-    "M3 16 V8 A6 6 0 0 1 15 8 V16 M7 16 V10 A2 2 0 0 1 11 10 V16 M1.5 16 H16.5",
+  pin: "M9 16 C 9 16 3.5 10.5 3.5 7 A5.5 5.5 0 0 1 14.5 7 C 14.5 10.5 9 16 9 16 Z M9 5 a2 2 0 1 0 0.01 0",
   path: "M2 15 L6 8 L11 11 L16 3",
-  grace: "M9 5 a4 4 0 1 0 0.01 0",
 };
 
 export const ToolIcon = ({ tool }: { tool: Tool }) => (

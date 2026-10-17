@@ -1,4 +1,10 @@
-import type { LayerId, MapDocument, MapEdge, MapNode } from "../domain/types";
+import {
+  isWalked,
+  type LayerId,
+  type MapDocument,
+  type MapEdge,
+  type MapNode,
+} from "../domain/types";
 import { inStepOrder, type MapAction } from "../map/editing";
 
 /**
@@ -11,7 +17,8 @@ import { inStepOrder, type MapAction } from "../map/editing";
  * new. With a layer, only that layer's nodes are copied; a path is copied when
  * all its pins are on the target map afterwards, so a waygate can join a
  * reused node on another layer. Copied paths keep their order and follow the
- * target's last step.
+ * target's last step. Note paths come along with their pin, unless the pin
+ * already has a note on the target map.
  */
 export function importMap(
   target: MapDocument,
@@ -42,7 +49,10 @@ export function importMap(
     ]),
   );
   const edges: MapEdge[] = [];
-  for (const edge of inStepOrder(source.edges)) {
+  for (const edge of [
+    ...inStepOrder(source.edges),
+    ...source.edges.filter((e) => !isWalked(e)),
+  ]) {
     const pins = edge.nodes.map(endOf);
     if (edgeIds.has(edge.id) || pins.some((id) => !id)) continue;
     const nodes = pins as string[];

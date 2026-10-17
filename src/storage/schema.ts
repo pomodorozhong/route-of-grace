@@ -51,7 +51,11 @@ function checkMap(value: unknown): value is MapDocument {
   const nodeIds = new Set<string>();
   for (const n of v.nodes) {
     if (
-      !hasExactKeys(n, ["id", "layer", "x", "y", "kind", "label", "ref"]) ||
+      !hasExactKeys(
+        n,
+        ["id", "layer", "x", "y", "kind", "label", "ref"],
+        ["items"],
+      ) ||
       typeof n.id !== "string" ||
       GRACE_ID.test(n.id) ||
       // Graces are game data, shown on every map; a map stores none.
@@ -62,16 +66,34 @@ function checkMap(value: unknown): value is MapDocument {
       !isCoordinate(n.y) ||
       !includes(NODE_KINDS, n.kind) ||
       typeof n.label !== "string" ||
-      !(n.ref === null || typeof n.ref === "string")
+      !(n.ref === null || typeof n.ref === "string") ||
+      !(
+        n.items === undefined ||
+        (Array.isArray(n.items) &&
+          n.items.every(
+            (item, i) =>
+              typeof item === "string" && n.items!.indexOf(item) === i,
+          ))
+      )
     )
       return false;
     nodeIds.add(n.id);
   }
   const edgeIds = new Set<string>();
   const steps = new Set<number>();
+  const noted = new Set<unknown>();
+  const walked = v.edges.filter(
+    (e) => e && typeof e === "object" && e.step !== null,
+  ).length;
   const end = (id: unknown) =>
     typeof id === "string" && (nodeIds.has(id) || GRACE_ID.test(id));
   return v.edges.every((e) => {
+    // A note path: one pin, no step, at most one per pin.
+    const note =
+      e.step === null &&
+      Array.isArray(e.nodes) &&
+      e.nodes.length === 1 &&
+      !noted.has(e.nodes[0]);
     const ok =
       hasExactKeys(e, [
         "id",
@@ -86,20 +108,22 @@ function checkMap(value: unknown): value is MapDocument {
       typeof e.id === "string" &&
       !edgeIds.has(e.id) &&
       Array.isArray(e.nodes) &&
-      e.nodes.length >= 2 &&
+      (note || e.nodes.length >= 2) &&
       e.nodes.every((id, i) => end(id) && id !== e.nodes[i - 1]) &&
       includes(PATH_COLORS, e.color) &&
       includes(PATH_LINES, e.line) &&
       typeof e.oneWay === "boolean" &&
       typeof e.showNote === "boolean" &&
       typeof e.note === "string" &&
-      // Steps run 1..N with no gaps or repeats.
-      Number.isInteger(e.step) &&
-      e.step >= 1 &&
-      e.step <= v.edges.length &&
-      !steps.has(e.step);
+      // Walked paths' steps run 1..N with no gaps or repeats.
+      (note ||
+        (Number.isInteger(e.step) &&
+          e.step! >= 1 &&
+          e.step! <= walked &&
+          !steps.has(e.step!)));
     edgeIds.add(e.id);
-    steps.add(e.step);
+    if (note) noted.add(e.nodes[0]);
+    else steps.add(e.step!);
     return ok;
   });
 }

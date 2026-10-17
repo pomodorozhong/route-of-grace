@@ -74,7 +74,7 @@ describe("import from another profile", () => {
     const target = doc([node("k")], [edge("mine", "k", "grace/1")]);
     const reversed = {
       ...source,
-      edges: source.edges.map((e) => ({ ...e, step: 3 - e.step })),
+      edges: source.edges.map((e) => ({ ...e, step: 3 - e.step! })),
     };
     const result = copy(target, reversed);
     expect(result.edges.map((e) => [e.id, e.step])).toEqual([
@@ -90,5 +90,35 @@ describe("import from another profile", () => {
       nodes: 0,
       edges: 0,
     });
+  });
+});
+
+describe("importing notes", () => {
+  const note = (pin: string, text: string): MapEdge => ({
+    ...drawn(`note-${pin}`, [pin]),
+    note: text,
+    step: null,
+  });
+
+  it("brings pin and grace notes along, unless the pin already has one", () => {
+    const source: MapDocument = {
+      ...doc([node("j")], [edge("road", "grace/1", "j")]),
+    };
+    source.edges.push(note("j", "chest"), note("grace/1", "rest"));
+    const result = copy(doc([]), source);
+    expect(result.edges.map((e) => [e.id, e.step])).toEqual([
+      ["road", 1],
+      ["note-j", null],
+      ["note-grace/1", null],
+    ]);
+    const noted = {
+      ...doc([]),
+      edges: [{ ...note("grace/1", "mine"), id: "own" }],
+    };
+    expect(
+      copy(noted, source).edges.filter(
+        (e) => e.nodes[0] === "grace/1" && e.step === null,
+      ),
+    ).toEqual([{ ...note("grace/1", "mine"), id: "own" }]);
   });
 });

@@ -114,11 +114,13 @@ export function searchCatalog<T extends { name: Localized }>(
     .map(([, entry]) => entry);
 }
 
+/** A node's name: its linked place or first item, else the player's label. */
 export function displayName(
   data: GameData | null,
-  node: { ref: string | null; label: string; kind: NodeKind },
+  node: { ref: string | null; label: string; kind: NodeKind; items?: string[] },
   language: Language,
 ): string {
-  const entry = node.ref ? data?.byId.get(node.ref) : undefined;
+  const id = node.ref ?? node.items?.[0];
+  const entry = id ? data?.byId.get(id) : undefined;
   return entry?.name[language] || node.label;
 }

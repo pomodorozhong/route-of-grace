@@ -8,6 +8,7 @@ import {
 import {
   NODE_KINDS,
   PATH_COLORS,
+  pinItems,
   PATH_LINES,
   type Language,
   type LayerId,
@@ -15,6 +16,7 @@ import {
   type MapEdge,
   type MapNode,
   type NodeKind,
+  type WalkedPath,
 } from "../domain/types";
 import type { Translate } from "../i18n/translation";
 import {
@@ -23,11 +25,15 @@ import {
   isItem,
   refCandidates,
   searchCatalog,
+  type CatalogItem,
+  type CatalogName,
   type GameData,
 } from "./catalog";
 import {
   inStepOrder,
   newId,
+  newPath,
+  notePath,
   type EdgeChanges,
   type MapAction,
 } from "./editing";
@@ -54,8 +60,10 @@ type Props = {
   recovery?: string;
   /** Shown above the layer summary when nothing is selected. */
   profile: ReactNode;
-  /** Playthrough controls for the selected node: progress and wishlist. */
+  /** Playthrough controls for the selected node, such as its progress. */
   nodeControls(node: MapNode): ReactNode;
+  /** Playthrough controls for an item at the selected node: its wishlist entry. */
+  itemControls(node: MapNode, item: string): ReactNode;
 };
 
 export function Inspector(props: Props) {
@@ -66,7 +74,7 @@ export function Inspector(props: Props) {
       : undefined;
   const edge =
     selection?.kind === "edge"
-      ? doc.edges.find((e) => e.id === selection.id)
+      ? inStepOrder(doc.edges).find((e) => e.id === selection.id)
       : undefined;
   return (
     <aside className="flex max-h-[45vh] w-full flex-col gap-4 overflow-y-auto border-t border-line bg-panel p-4 md:max-h-none md:w-80 md:border-t-0 md:border-l">
@@ -110,34 +118,62 @@ function NodePanel({
   select,
   deleteSelection,
   nodeControls,
+  itemControls,
 }: Props & { node: MapNode }) {
-  const [query, setQuery] = useState("");
-  // Game graces are game data: they can be visited and joined by paths, not edited.
+  // Game graces are game data: they can be visited, joined by paths and given
+  // a note, not edited.
   const fixed = isGameGrace(node.id);
-  const candidates = fixed ? [] : refCandidates(data, node.kind);
-  const results = query ? searchCatalog(candidates, query) : [];
+  // Older maps' item pins read as junctions that hold their item.
+  const kind: NodeKind = node.kind === "item" ? "junction" : node.kind;
+  const items = pinItems(node);
   const entry = node.ref ? data.byId.get(node.ref) : undefined;
+  const icon = [entry, ...items.map((id) => data.byId.get(id))].find(
+    (e) => e && isItem(e) && e.icon,
+  );
   const connected = inStepOrder(
     doc.edges.filter((e) => e.nodes.includes(node.id)),
   );
+  const note = notePath(doc, node.id);
   const nodes = new Map(doc.nodes.map((n) => [n.id, n]));
   const update = (changes: Partial<MapNode>) =>
     edit({ type: "updateNode", id: node.id, changes });
+  const setItems = (next: string[]) =>
+    update(
+      node.kind === "item"
+        ? { kind: "junction", ref: null, items: next }
+        : { items: next },
+    );
+  // The note lives on the pin's note path, made when needed and removed when empty.
+  const setNote = (changes: { note?: string; showNote?: boolean }) => {
+    const next = {
+      note: note?.note ?? "",
+      showNote: note?.showNote ?? false,
+      ...changes,
+    };
+    if (!note)
+      edit({
+        type: "addEdge",
+        edge: { ...newPath(newId("note"), [node.id]), ...next },
+      });
+    else if (!next.note && !next.showNote)
+      edit({ type: "removeEdge", id: note.id });
+    else edit({ type: "updateEdge", id: note.id, changes: next });
+  };
   const other = language === "en" ? "zh-TW" : "en";
 
   return (
     <section className="space-y-4" aria-label={t("Selected node")}>
       <header className="flex items-start gap-3">
-        {entry && isItem(entry) && entry.icon && (
+        {icon && isItem(icon) && (
           <img
-            src={iconUrl(entry.icon)}
+            src={iconUrl(icon.icon!)}
             alt=""
             className="size-14 rounded bg-ink"
           />
         )}
         <div className="min-w-0">
           <h2 className="font-serif text-lg text-gold">
-            {displayName(data, node, language) || t(NODE_KIND_NAMES[node.kind])}
+            {displayName(data, node, language) || t(NODE_KIND_NAMES[kind])}
           </h2>
           {entry && <p className="text-sm text-muted">{entry.name[other]}</p>}
         </div>
@@ -148,25 +184,29 @@ function NodePanel({
           <span className="label">{t("Kind")}</span>
           <select
             className="field w-full"
-            value={node.kind}
+            value={kind}
             onChange={(e) =>
-              update({ kind: e.target.value as NodeKind, ref: null })
+              update({
+                kind: e.target.value as NodeKind,
+                ref: null,
+                ...(node.kind === "item" && { items }),
+              })
             }
           >
-            {NODE_KINDS.filter((kind) => kind !== "grace").map((kind) => (
-              <option key={kind} value={kind}>
-                {t(NODE_KIND_NAMES[kind])}
-              </option>
-            ))}
+            {NODE_KINDS.filter((k) => k !== "grace" && k !== "item").map(
+              (k) => (
+                <option key={k} value={k}>
+                  {t(NODE_KIND_NAMES[k])}
+                </option>
+              ),
+            )}
           </select>
         </label>
       )}
 
-      {candidates.length > 0 && (
+      {!fixed && kind === "entrance" && (
         <div className="space-y-1">
-          <label className="label" htmlFor="ref-search">
-            {node.kind === "item" ? t("Item") : t("Place name")}
-          </label>
+          <span className="label">{t("Place name")}</span>
           {entry && (
             <p className="flex items-center justify-between gap-2 text-sm">
               <span>{entry.name[language]}</span>
@@ -175,55 +215,65 @@ function NodePanel({
               </button>
             </p>
           )}
-          <input
-            id="ref-search"
-            className="field w-full"
+          <CatalogSearch
+            t={t}
+            language={language}
+            label={t("Place name")}
+            entries={refCandidates(data, "entrance")}
             autoFocus={!entry}
-            placeholder={t("Search English or 中文")}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            pick={(id) => update({ ref: id })}
           />
-          {results.length > 0 && (
-            <ul className="max-h-64 overflow-y-auto rounded border border-line">
-              {results.map((result) => (
-                <li key={result.id}>
-                  <button
-                    className="flex w-full items-center gap-2 px-2 py-1 text-left hover:bg-ink"
-                    onClick={() => {
-                      update({ ref: result.id });
-                      setQuery("");
-                    }}
-                  >
-                    {isItem(result) && result.icon && (
-                      <img
-                        src={iconUrl(result.icon)}
-                        alt=""
-                        className="size-8"
-                        loading="lazy"
-                      />
-                    )}
-                    <span className="min-w-0">
-                      <span className="block truncate">
-                        {result.name[language]}
-                      </span>
-                      <span className="block truncate text-xs text-muted">
-                        {result.name[other]}
-                        {result.dlc && ` · ${t("DLC")}`}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       )}
 
       {nodeControls(node)}
 
       {!fixed && (
+        <div className="space-y-2">
+          <h3 className="label">
+            {t("Items ({count})", { count: items.length })}
+          </h3>
+          {items.map((id) => {
+            const item = data.byId.get(id);
+            return (
+              <div key={id} className="space-y-1">
+                <p className="flex items-center gap-2 text-sm">
+                  {item && isItem(item) && item.icon && (
+                    <img
+                      src={iconUrl(item.icon)}
+                      alt=""
+                      className="size-8 rounded bg-ink"
+                    />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">
+                    {item?.name[language] ?? id}
+                  </span>
+                  <button
+                    className="link"
+                    onClick={() => setItems(items.filter((i) => i !== id))}
+                  >
+                    {t("Remove")}
+                  </button>
+                </p>
+                {itemControls(node, id)}
+              </div>
+            );
+          })}
+          <CatalogSearch
+            t={t}
+            language={language}
+            label={t("Add an item")}
+            entries={refCandidates(data, "item").filter(
+              (e) => !items.includes(e.id),
+            )}
+            pick={(id) => setItems([...items, id])}
+          />
+        </div>
+      )}
+
+      {!fixed && (
         <label className="block space-y-1">
-          <span className="label">{t("Your note")}</span>
+          <span className="label">{t("Label")}</span>
           <input
             className="field w-full"
             value={node.label}
@@ -232,6 +282,26 @@ function NodePanel({
           />
         </label>
       )}
+
+      <div className="space-y-1">
+        <label className="block space-y-1">
+          <span className="label">{t("Your note")}</span>
+          <input
+            className="field w-full"
+            value={note?.note ?? ""}
+            placeholder={t("For example what to do or remember here")}
+            onChange={(e) => setNote({ note: e.target.value })}
+          />
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={note?.showNote ?? false}
+            onChange={(e) => setNote({ showNote: e.target.checked })}
+          />
+          {t("Show note on the map")}
+        </label>
+      </div>
 
       <div className="space-y-1">
         <h3 className="label">
@@ -289,11 +359,78 @@ function NodePanel({
   );
 }
 
+/** A search box over catalog entries, in either language. */
+function CatalogSearch({
+  t,
+  language,
+  label,
+  entries,
+  autoFocus,
+  pick,
+}: {
+  t: Translate;
+  language: Language;
+  label: string;
+  entries: (CatalogItem | CatalogName)[];
+  autoFocus?: boolean;
+  pick(id: string): void;
+}) {
+  const [query, setQuery] = useState("");
+  const results = query ? searchCatalog(entries, query) : [];
+  const other = language === "en" ? "zh-TW" : "en";
+  return (
+    <>
+      <input
+        className="field w-full"
+        aria-label={label}
+        autoFocus={autoFocus}
+        placeholder={t("Search English or 中文")}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      {results.length > 0 && (
+        <ul className="max-h-64 overflow-y-auto rounded border border-line">
+          {results.map((result) => (
+            <li key={result.id}>
+              <button
+                className="flex w-full items-center gap-2 px-2 py-1 text-left hover:bg-ink"
+                onClick={() => {
+                  pick(result.id);
+                  setQuery("");
+                }}
+              >
+                {isItem(result) && result.icon && (
+                  <img
+                    src={iconUrl(result.icon)}
+                    alt=""
+                    className="size-8"
+                    loading="lazy"
+                  />
+                )}
+                <span className="min-w-0">
+                  <span className="block truncate">
+                    {result.name[language]}
+                  </span>
+                  <span className="block truncate text-xs text-muted">
+                    {result.name[other]}
+                    {result.dlc && ` · ${t("DLC")}`}
+                  </span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
 function EdgePanel(props: Props & { edgeId: string }) {
   const { t, language, data, doc, edgeId, edit, showNode, deleteSelection } =
     props;
   const [moving, setMoving] = useState(false);
-  const edge = doc.edges.find((e) => e.id === edgeId)!;
+  const walked = inStepOrder(doc.edges);
+  const edge = walked.find((e) => e.id === edgeId)!;
   const pins = edge.nodes.map((id) => doc.nodes.find((n) => n.id === id)!);
   const ends = [pins[0], pins[pins.length - 1]];
   const crossesLayers = pins.some((n) => n.layer !== pins[0].layer);
@@ -308,7 +445,7 @@ function EdgePanel(props: Props & { edgeId: string }) {
         <h2 className="font-serif text-lg text-gold">
           {t("Step {step}", { step: edge.step })}
         </h2>
-        {doc.edges.length > 1 && (
+        {walked.length > 1 && (
           <button className="chip" onClick={() => setMoving(true)}>
             {t("Move…")}
           </button>
@@ -439,7 +576,7 @@ function MoveList({
   edit,
   highlight,
   close,
-}: Props & { edge: MapEdge; close(): void }) {
+}: Props & { edge: WalkedPath; close(): void }) {
   const list = useRef<HTMLDivElement>(null);
   const ordered = inStepOrder(doc.edges);
   const at = ordered.findIndex((e) => e.id === edge.id);
@@ -555,8 +692,9 @@ function Summary({
       <p className="text-muted">
         {t("{nodes} nodes and {edges} paths on this layer.", {
           nodes: here.length,
-          edges: doc.edges.filter((e) => e.nodes.some((id) => ids.has(id)))
-            .length,
+          edges: inStepOrder(doc.edges).filter((e) =>
+            e.nodes.some((id) => ids.has(id)),
+          ).length,
         })}
       </p>
     </section>

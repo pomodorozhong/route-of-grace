@@ -13,7 +13,7 @@ import {
   type LayerId,
   type Language,
   type MapView,
-  type NodeKind,
+  type MapNode,
   type PlayerDocument,
   type Point,
   type StepSize,
@@ -59,7 +59,7 @@ import {
   type SaveStatus,
 } from "./storage/usePersistentDocument";
 
-export type Tool = "select" | NodeKind | "path";
+export type Tool = "select" | "pin" | "path";
 const STEP_SIZE_NAMES: Record<StepSize, string> = {
   small: "Small",
   medium: "Medium",
@@ -74,22 +74,10 @@ const TOOLS: { tool: Tool; label: string; key: string; tip: string }[] = [
     tip: "Select, move and edit nodes and paths",
   },
   {
-    tool: "junction",
-    label: "Junction",
-    key: "j",
-    tip: "An unnamed point where paths meet or turn",
-  },
-  {
-    tool: "item",
-    label: "Item pin",
-    key: "i",
-    tip: "Where an item is picked up, linked to the item",
-  },
-  {
-    tool: "entrance",
-    label: "Entrance",
-    key: "e",
-    tip: "A dungeon entrance, linked to a game place",
+    tool: "pin",
+    label: "Pin",
+    key: "n",
+    tip: "Place a pin: a junction, an entrance or where items are, set in its details",
   },
   {
     tool: "path",
@@ -239,9 +227,18 @@ export default function App() {
     [map.nodes],
   );
 
-  const addNode = useCallback(
-    (kind: NodeKind, [x, y]: Point) => {
-      const node = { id: newId(kind), layer, x, y, kind, label: "", ref: null };
+  // A new pin is a junction; its details make it an entrance or give it items.
+  const addPin = useCallback(
+    ([x, y]: Point) => {
+      const node: MapNode = {
+        id: newId("junction"),
+        layer,
+        x,
+        y,
+        kind: "junction",
+        label: "",
+        ref: null,
+      };
       edit({ type: "addNode", node });
       return node.id;
     },
@@ -258,7 +255,7 @@ export default function App() {
         edit(next.action);
         return setDraft(next.draft);
       }
-      setSelection({ kind: "node", id: addNode(activeTool, point) });
+      setSelection({ kind: "node", id: addPin(point) });
     },
     onNodeClick(id: string) {
       if (activeTool === "path") {
@@ -505,16 +502,16 @@ export default function App() {
             setPlayer={setPlayer}
             node={node}
           />
-          {node.kind === "item" && node.ref && (
-            <PinWishlist
-              t={t}
-              player={player}
-              setPlayer={setPlayer}
-              item={node.ref}
-              estimate={detourText(node.id)}
-            />
-          )}
         </>
+      )}
+      itemControls={(node, item) => (
+        <PinWishlist
+          t={t}
+          player={player}
+          setPlayer={setPlayer}
+          item={item}
+          estimate={detourText(node.id)}
+        />
       )}
     />
   );
@@ -796,7 +793,7 @@ function toolHint(tool: Tool, drawing: boolean) {
       : "Click a node (or the map) to start a path.";
   if (tool === "select")
     return "Click to select, drag to move. Delete removes the selection; ⌘Z undoes.";
-  return "Click the map to place. Click an existing node to select it.";
+  return "Click the map to place a pin. Click an existing node to select it.";
 }
 
 function SaveIndicator({

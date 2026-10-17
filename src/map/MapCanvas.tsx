@@ -1,14 +1,16 @@
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { useEffect, useLayoutEffect, useRef } from "react";
-import type {
-  GraceNameMode,
-  LayerId,
-  Language,
-  MapEdge,
-  MapNode,
-  MapView,
-  Point,
+import {
+  isWalked,
+  pinItems,
+  type GraceNameMode,
+  type LayerId,
+  type Language,
+  type MapEdge,
+  type MapNode,
+  type MapView,
+  type Point,
 } from "../domain/types";
 import {
   displayName,
@@ -237,10 +239,16 @@ export function MapCanvas(props: Props) {
     steps.current = [];
     labels.current = [];
     const byId = new Map(nodes.map((n) => [n.id, n]));
+    // A grace with a note is on its note path, so it shows like a pathed grace.
     const pathNodes = new Set(edges.flatMap((edge) => edge.nodes));
+    const notes = new Map(
+      edges.filter((e) => !isWalked(e)).map((e) => [e.nodes[0], e]),
+    );
     const portalEnds = new Set<string>();
 
     for (const edge of edges) {
+      // Note paths are drawn as notes beside their pins, below.
+      if (!isWalked(edge)) continue;
       // Pins a path jumps between layers at are marked instead of drawn.
       edge.nodes.forEach((id, i) => {
         const [a, b] = [byId.get(edge.nodes[i - 1]), byId.get(id)];
@@ -334,15 +342,30 @@ export function MapCanvas(props: Props) {
     for (const node of nodes) {
       if (node.layer !== layer) continue;
       const selected = selection?.kind === "node" && selection.id === node.id;
-      const name = displayName(data, node, language);
-      const entry = node.ref ? data.byId.get(node.ref) : undefined;
+      const items = pinItems(node);
+      const itemNames = items.flatMap((id) => {
+        const item = data.byId.get(id);
+        return item ? [item.name[language]] : [];
+      });
+      const name =
+        itemNames.length > 1
+          ? [node.label, ...itemNames].filter(Boolean).join(" · ")
+          : displayName(data, node, language);
+      // A pin with items shows the first one's icon, and how many more it holds.
+      const first = items.length ? data.byId.get(items[0]) : undefined;
       const image =
-        entry && isItem(entry) && entry.icon
-          ? `<img src="${iconUrl(entry.icon)}" alt="">`
-          : NODE_SYMBOL[node.kind];
+        (first && isItem(first) && first.icon
+          ? `<img src="${iconUrl(first.icon)}" alt="">`
+          : items.length
+            ? NODE_SYMBOL.item
+            : NODE_SYMBOL[node.kind]) +
+        (items.length > 1
+          ? `<span class="item-count">+${items.length - 1}</span>`
+          : "");
       const classes = [
         "map-node",
         `map-node--${node.kind}`,
+        items.length > 0 && "has-items",
         selected && "is-selected",
         portalEnds.has(node.id) && "has-portal",
         draft?.from === node.id && "is-draft-start",
@@ -373,6 +396,22 @@ export function MapCanvas(props: Props) {
             toPoint((event.target as L.Marker).getLatLng()),
           ),
         );
+      // The pin's note, when shown, sits just below it.
+      const note = notes.get(node.id);
+      if (note?.showNote && note.note.trim())
+        L.marker(toLatLng([node.x, node.y]), {
+          icon: L.divIcon({
+            className: "pin-note",
+            html: `<span>${escapeHtml(note.note)}</span>`,
+            iconSize: [0, 0],
+          }),
+          keyboard: false,
+        })
+          .on("click", (event) => {
+            L.DomEvent.stop(event);
+            latest.current.onNodeClick(node.id);
+          })
+          .addTo(group);
       if (node.kind === "grace")
         graceMarkers.current.push({
           id: node.id,
